@@ -11,10 +11,13 @@ contract Staking is Ownable {
     token = _token;
   }
 
-  uint256 tokenBal;
+  uint256 public tokenBal;
 
   // reward per second per ether staked
-  uint256 rwdRte;
+  uint256 public rwdRte;
+
+  bool public withdrawlPaused = false;
+  uint256 public timeLock;
 
   event adminTokenTxn(string txnType, uint256 amt);
   event userStakeTxn(address userAddress, uint256 amt);
@@ -24,6 +27,7 @@ contract Staking is Ownable {
     uint256 balance;
     uint256 reward;
     uint256 lastRwd;
+    uint256 begTime;
   }
 
   mapping(address => StakingAccount) public accounts;
@@ -42,10 +46,6 @@ contract Staking is Ownable {
     emit adminTokenTxn("deposit", _amt);
   }
 
-  function viewTokenBalance() public view returns (uint256) {
-    return tokenBal;
-  }
-
   function stake() public payable {
     require(accounts[msg.sender].balance == 0, "You are already staking");
     address userAddress = msg.sender;
@@ -53,11 +53,14 @@ contract Staking is Ownable {
     addresses.push(userAddress);
     accounts[userAddress].balance += etherAmt;
     accounts[userAddress].lastRwd = block.timestamp;
+    accounts[userAddress].begTime = block.timestamp;
     emit userStakeTxn(userAddress,etherAmt);
   }
 
   function unstake() public {
     require(accounts[msg.sender].balance > 0, "You are not staking");
+    require(block.timestamp - accounts[msg.sender].begTime > timeLock,"You staking is time-locked");
+    require(withdrawlPaused == false, "Withdrawl suspended");
     issueRwd(msg.sender);
     address userAddress = msg.sender;
     uint256 eth_amt = accounts[userAddress].balance;
@@ -67,6 +70,7 @@ contract Staking is Ownable {
     accounts[userAddress].balance = 0;
     accounts[userAddress].reward = 0;
     accounts[userAddress].lastRwd = 0;
+    accounts[userAddress].begTime = 0;
     token.transfer(userAddress, rwd);
     payable(userAddress).transfer(eth_amt);
     
@@ -97,12 +101,16 @@ contract Staking is Ownable {
     rwdRte = _newRwdRte;
   }
 
-  function balanceOf() public view returns(uint256) {
-    return address(this).balance;
+  function updateTimelock(uint256 _newTimelock) public onlyOwner {
+    timeLock = _newTimelock;
   }
 
-  function viewRwdRte() public view returns(uint256) {
-    return rwdRte;
+  function pauseWithdrawl(bool _op) public onlyOwner {
+    withdrawlPaused = _op;
+  }
+
+  function balanceOf() public view returns(uint256) {
+    return address(this).balance;
   }
 
   function withdrawETH(address payable _to, uint _amt) external onlyOwner{
