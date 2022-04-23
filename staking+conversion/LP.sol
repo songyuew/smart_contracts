@@ -29,6 +29,14 @@ contract LP is FundPrivilege, ParamPrivilege {
   // timelock in second
   uint256 public timeLock;
 
+  // in case of a bank-run, this address will be used to inject ETH into LP
+  // ETH deposit from this address will not be recorded as staking, no reward issued
+  address emergencyInjectionAddr;
+
+  function setEIA(address _newEIA) public onlyParamAdmin {
+    emergencyInjectionAddr = _newEIA;
+  }
+
   event adminTokenTxn(string txnType, uint256 amt);
   event userStakeTxn(address userAddress, uint256 amt);
   event userUnstakeTxn(address userAddress, uint256 amt, uint256 reward);
@@ -144,7 +152,9 @@ contract LP is FundPrivilege, ParamPrivilege {
   }
 
   receive() external payable {
-    stake();
+    if (msg.sender != emergencyInjectionAddr) {
+      stake();
+    }
   }
   
   ///////////////////////////
@@ -152,6 +162,8 @@ contract LP is FundPrivilege, ParamPrivilege {
   ///////////////////////////
 
   address public launchPool;
+
+  bool public sellingPaused = false;
 
   function setLaunchPool(address _launchPoolAddr) public onlyParamAdmin {
     launchPool = _launchPoolAddr;
@@ -168,21 +180,30 @@ contract LP is FundPrivilege, ParamPrivilege {
   event adminuNFTTxn(uint256 id, string txnType, uint256 amt);
   event uNFTTxn(uint256 id, string txnType, address userAddr, uint256 amt);
 
+  // list new uNFT product
   function adduNFT(uint256 _id, IERC20 _tokenContract) public onlyParamAdmin {
     require(uNFTList[_id].active == false, "This ID is used by another uNFT token");
     uNFTList[_id].tokenContract = _tokenContract;
     uNFTList[_id].active = true;
   }
 
+  // deactive and reactivate uNFT product
   function delistNFT(uint256 _id, bool _op) public onlyParamAdmin {
     uNFTList[_id].active = _op;
   }
 
+  function pauseUserSelling(bool _op) public onlyParamAdmin {
+    sellingPaused = _op;
+  }
+
   function receiveuNFT(uint256 _id, uint256 _amt) public {
     require(uNFTList[_id].active, "This uNFT product does not exist");
+    require(sellingPaused == false, "uNFT to ETH conversion suspended");
     uNFTList[_id].tokenContract.transferFrom(msg.sender, address(this), _amt);
     uNFTList[_id].balance += _amt;
 
+    // if uNFT is sent from the launch pool, no action is needed for the server
+    // if uNFT is sent from a user, the server will be triggered to process conversion
     if (msg.sender == launchPool) {
       emit adminuNFTTxn(_id, "deposit", _amt);
     } else {
@@ -190,6 +211,7 @@ contract LP is FundPrivilege, ParamPrivilege {
     }
   }
 
+  // send uNFT to user
   function senduNFT(uint256 _id, address payable _userAddr, uint256 _amt) public onlyFundAdmin {
     require(uNFTList[_id].active, "This uNFT product does not exist");
     require(_amt <= uNFTList[_id].balance, "Insufficient uNFT balance");
