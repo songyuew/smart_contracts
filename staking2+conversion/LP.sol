@@ -241,13 +241,13 @@ contract LP is FundPrivilege, ParamPrivilege {
   }
 
   // Pull uNFT from the trading user by backend
-  function receiveuNFTBackend(uint256 _id, uint256 _amt) public {
+  function receiveuNFTBackend(uint256 _id, uint256 _amt, address _userAddr) public {
     require(uNFTList[_id].active, "This uNFT product does not exist");
     require(sellingPaused == false, "uNFT to ETH conversion suspended");
-    uNFTList[_id].tokenContract.transferFrom(msg.sender, address(this), _amt);
+    uNFTList[_id].tokenContract.transferFrom(_userAddr, address(this), _amt);
     uNFTList[_id].balance += _amt;
 
-    emit uNFTTxn(_id, "received", msg.sender, _amt);
+    emit uNFTTxn(_id, "received", _userAddr, _amt);
   }
 
   // send uNFT to user
