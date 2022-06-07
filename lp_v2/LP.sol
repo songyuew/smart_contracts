@@ -42,11 +42,16 @@ contract LP is FundPrivilege, ParamPrivilege {
   event userUnstakeTxn(address userAddress, uint256 amt, uint256 reward);
   event transferETH(address to, uint256 amt);
 
-  struct StakingAccount {
+  struct staking {
     uint256 balance;
     uint256 rte;
     uint256 period;
     uint256 begTime;
+  }
+
+  struct StakingAccount {
+    uint256 index;
+    mapping(uint256 => staking) portfolio;
   }
 
   mapping(address => StakingAccount) public accounts;
@@ -96,34 +101,34 @@ contract LP is FundPrivilege, ParamPrivilege {
   }
 
   // user stake ETH
-  function stake(uint256 _tierSel) public payable {
+  function stake(uint256 _tierSel) external payable {
     require(_tierSel == 1 || _tierSel == 2 || _tierSel == 3 || _tierSel == 4 || _tierSel == 5, "Invalid tier selection");
-    require(accounts[msg.sender].balance == 0, "You are already staking");
     address userAddress = msg.sender;
     uint256 etherAmt = msg.value;
+    uint256 currentIndex = accounts[userAddress].index;
     stakerRights += etherAmt;
-    accounts[userAddress].balance = etherAmt;
-    accounts[userAddress].begTime = block.timestamp;
-    accounts[userAddress].rte = rewardTiers[_tierSel].rewardRte;
-    accounts[userAddress].period = rewardTiers[_tierSel].stakePeriod;
-
+    accounts[userAddress].portfolio[currentIndex].balance = etherAmt;
+    accounts[userAddress].portfolio[currentIndex].begTime = block.timestamp;
+    accounts[userAddress].portfolio[currentIndex].rte = rewardTiers[_tierSel].rewardRte;
+    accounts[userAddress].portfolio[currentIndex].period = rewardTiers[_tierSel].stakePeriod;
+    accounts[userAddress].index ++;
     emit userStakeTxn(userAddress,etherAmt,_tierSel);
   }
 
   // user unstake ETH
-  function unstake() public {
+  function unstake(uint256 _index) public {
     address userAddress = msg.sender;
-    require(accounts[userAddress].balance > 0, "You are not staking");
-    require(block.timestamp >= accounts[userAddress].begTime + accounts[userAddress].period, "Your staking is in lock period");
+    require(accounts[userAddress].portfolio[_index].balance > 0, "No such staking");
+    require(block.timestamp >= accounts[userAddress].portfolio[_index].begTime + accounts[userAddress].portfolio[_index].period, "Your staking is in lock period");
     require(withdrawlPaused == false, "Withdrawl suspended");   
-    uint256 reward = getReward(userAddress);
-    uint256 eth_amt = accounts[userAddress].balance;
+    uint256 reward = getReward(userAddress,_index);
+    uint256 eth_amt = accounts[userAddress].portfolio[_index].balance;
     require(eth_amt <= address(this).balance && reward <= tokenBal, "Insufficient assets in contract");
     tokenBal -= reward;
-    accounts[userAddress].balance = 0;
-    accounts[userAddress].rte = 0;
-    accounts[userAddress].period = 0;
-    accounts[userAddress].begTime = 0;
+    accounts[userAddress].portfolio[_index].balance = 0;
+    accounts[userAddress].portfolio[_index].rte = 0;
+    accounts[userAddress].portfolio[_index].period = 0;
+    accounts[userAddress].portfolio[_index].begTime = 0;
     stakerRights -= eth_amt;
 
     token.transfer(userAddress, reward);
@@ -132,9 +137,25 @@ contract LP is FundPrivilege, ParamPrivilege {
     emit userUnstakeTxn(msg.sender, eth_amt, reward);
   }
 
-  function getReward(address _addr) public view returns(uint256) {
-    uint256 duration = block.timestamp - accounts[_addr].begTime;
-    return accounts[_addr].rte * duration * accounts[_addr].balance / 10 ** 18;
+  function getReward(address _addr,uint256 _index) public view returns(uint256) {
+    require(accounts[_addr].portfolio[_index].balance > 0, "No such staking");
+    uint256 duration = block.timestamp - accounts[_addr].portfolio[_index].begTime;
+    return accounts[_addr].portfolio[_index].rte * duration * accounts[_addr].portfolio[_index].balance / 10 ** 18;
+  }
+
+  function getPrincipal(address _addr,uint256 _index) public view returns(uint256) {
+    require(accounts[_addr].portfolio[_index].balance > 0, "No such staking");
+    return accounts[_addr].portfolio[_index].balance;
+  }
+
+  function getDuration(address _addr,uint256 _index) public view returns(uint256) {
+    require(accounts[_addr].portfolio[_index].balance > 0, "No such staking");
+    return accounts[_addr].portfolio[_index].period;
+  }
+
+  function getBegTime(address _addr,uint256 _index) public view returns(uint256) {
+    require(accounts[_addr].portfolio[_index].balance > 0, "No such staking");
+    return accounts[_addr].portfolio[_index].begTime;
   }
 
   function pauseWithdrawl(bool _op) public onlyParamAdmin {
